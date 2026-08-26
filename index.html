@@ -1,0 +1,996 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<title>Prezenčná listina</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --bg:#F7F7F4;
+    --surface:#FFFFFF;
+    --ink:#171F1D;
+    --muted:#69746F;
+    --line:#E4E3DD;
+    --accent:#0E6E5C;
+    --accent-dim:#E3EFEC;
+    --warn:#B5852C;
+    --warn-dim:#F6EEDF;
+    --danger:#A63D2C;
+    --danger-dim:#F5E7E2;
+    --radius:14px;
+    --shadow:0 1px 2px rgba(23,31,29,0.06), 0 8px 24px rgba(23,31,29,0.05);
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:'Inter',system-ui,-apple-system,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+  }
+  .app{max-width:760px; margin:0 auto; padding:20px 16px 80px;}
+  header.top{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:6px 2px 22px;
+  }
+  .brand{display:flex; align-items:center; gap:10px;}
+  .brand .mark{
+    width:34px; height:34px; border-radius:9px; background:var(--accent);
+    display:flex; align-items:center; justify-content:center; color:white;
+    font-weight:800; font-size:15px; flex-shrink:0;
+  }
+  .brand h1{font-size:16px; font-weight:700; margin:0; letter-spacing:-0.01em;}
+  .brand p{margin:0; font-size:12px; color:var(--muted);}
+  button{
+    font-family:inherit; cursor:pointer; border:none; border-radius:10px;
+    font-weight:600; font-size:14px; transition:transform .08s ease, opacity .15s ease;
+  }
+  button:active{transform:scale(0.97);}
+  .btn-primary{background:var(--ink); color:white; padding:11px 18px;}
+  .btn-primary:hover{opacity:.9;}
+  .btn-ghost{background:transparent; color:var(--ink); padding:10px 14px; border:1px solid var(--line);}
+  .btn-ghost:hover{background:var(--surface);}
+  .btn-sm{padding:7px 12px; font-size:13px; border-radius:8px;}
+  .btn-danger-ghost{background:transparent; color:var(--danger); border:1px solid var(--danger); }
+
+  .card{
+    background:var(--surface); border:1px solid var(--line); border-radius:var(--radius);
+    box-shadow:var(--shadow); padding:18px; margin-bottom:16px;
+  }
+  .card h2{font-size:15px; margin:0 0 4px; font-weight:700;}
+  .card .hint{font-size:12.5px; color:var(--muted); margin:0 0 14px;}
+
+  label{display:block; font-size:12.5px; font-weight:600; color:var(--muted); margin:0 0 5px;}
+  input[type=text], input[type=email], input[type=date], input[type=url], textarea, select{
+    width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:9px;
+    font-family:inherit; font-size:14px; color:var(--ink); background:#FCFCFB;
+  }
+  input:focus, textarea:focus, select:focus{outline:2px solid var(--accent); outline-offset:1px;}
+  .field{margin-bottom:12px;}
+  .row2{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
+  @media (max-width:520px){ .row2{grid-template-columns:1fr;} }
+
+  /* Event list */
+  .event-item{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 16px; background:var(--surface); border:1px solid var(--line);
+    border-radius:12px; margin-bottom:10px; cursor:pointer;
+  }
+  .event-item:hover{border-color:var(--accent);}
+  .event-item .em{font-weight:700; font-size:14.5px;}
+  .event-item .es{font-size:12.5px; color:var(--muted); margin-top:2px;}
+  .event-item .chev{color:var(--muted); font-size:18px;}
+  .empty{
+    text-align:center; padding:50px 20px; color:var(--muted); font-size:13.5px;
+  }
+  .empty .big{font-size:34px; margin-bottom:8px;}
+
+  /* Progress ring signature element */
+  .ring-wrap{display:flex; align-items:center; gap:18px; margin-bottom:4px;}
+  .ring{position:relative; width:76px; height:76px; flex-shrink:0;}
+  .ring svg{transform:rotate(-90deg);}
+  .ring .num{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    font-weight:800; font-size:16px;
+  }
+  .stats{display:flex; gap:18px; flex-wrap:wrap;}
+  .stat{font-size:12.5px; color:var(--muted);}
+  .stat b{display:block; font-size:18px; color:var(--ink); font-weight:800;}
+
+  /* Participant rows */
+  .plist{display:flex; flex-direction:column; gap:8px;}
+  .prow{
+    display:flex; align-items:center; gap:10px; padding:10px 12px;
+    border:1px solid var(--line); border-radius:11px; background:var(--surface);
+  }
+  .prow .pinfo{flex:1; min-width:0;}
+  .prow .pname{font-weight:600; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .prow .pemail{font-size:12px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .prow .pmeta{font-size:11.5px; color:var(--muted); opacity:.8; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .toggle3{display:flex; border:1px solid var(--line); border-radius:9px; overflow:hidden; flex-shrink:0;}
+  .toggle3 button{
+    border-radius:0; padding:8px 10px; font-size:12px; background:var(--surface); color:var(--muted); border-right:1px solid var(--line);
+  }
+  .toggle3 button:last-child{border-right:none;}
+  .toggle3 button.active-yes{background:var(--accent); color:white;}
+  .toggle3 button.active-no{background:var(--danger); color:white;}
+  .toggle3 button.active-wait{background:#EFEEE9; color:var(--ink);}
+
+  .searchbar{margin-bottom:12px;}
+
+  .dropzone{
+    border:1.5px dashed var(--line); border-radius:12px; padding:22px; text-align:center;
+    color:var(--muted); font-size:13px; cursor:pointer; background:#FCFCFB;
+  }
+  .dropzone:hover{border-color:var(--accent); color:var(--accent);}
+  .hidden-file-input{
+    position:absolute; width:1px; height:1px; padding:0; margin:-1px;
+    overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0;
+  }
+
+  .maptable{width:100%; border-collapse:collapse; font-size:13px; margin-top:10px;}
+  .maptable th{text-align:left; color:var(--muted); font-weight:600; font-size:12px; padding:6px 4px;}
+  .maptable td{padding:6px 4px; border-top:1px solid var(--line);}
+
+  .tabbar{display:flex; gap:6px; margin-bottom:16px; border-bottom:1px solid var(--line);}
+  .tab{padding:9px 4px; font-size:13.5px; font-weight:600; color:var(--muted); border-bottom:2px solid transparent; background:transparent;}
+  .tab.active{color:var(--ink); border-color:var(--accent);}
+
+  .email-block{border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:12px; background:var(--surface);}
+  .email-block h3{font-size:13.5px; margin:0 0 8px; display:flex; align-items:center; gap:8px;}
+  .pill{font-size:11px; padding:2px 8px; border-radius:20px; font-weight:700;}
+  .pill.yes{background:var(--accent-dim); color:var(--accent);}
+  .pill.no{background:var(--danger-dim); color:var(--danger);}
+  .recip-row{display:flex; align-items:center; justify-content:space-between; padding:9px 0; border-top:1px solid var(--line); gap:10px;}
+  .recip-row:first-of-type{border-top:none;}
+  .recip-name{font-size:13.5px; font-weight:600;}
+  .recip-email{font-size:11.5px; color:var(--muted);}
+
+  .backlink{display:inline-flex; align-items:center; gap:6px; color:var(--muted); font-size:13px; margin-bottom:14px; cursor:pointer; background:none; border:none; padding:4px 0;}
+  .backlink:hover{color:var(--ink);}
+
+  .toast{
+    position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
+    background:var(--ink); color:white; padding:10px 18px; border-radius:10px;
+    font-size:13px; box-shadow:var(--shadow); opacity:0; pointer-events:none; transition:opacity .2s ease;
+    z-index:50;
+  }
+  .toast.show{opacity:1;}
+
+  .helptext{font-size:12px; color:var(--muted); line-height:1.5;}
+  code{background:#EFEEE9; padding:1px 5px; border-radius:5px; font-size:12px;}
+</style>
+</head>
+<body>
+<div class="app" id="app"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const el = (sel, root=document) => root.querySelector(sel);
+const app = el('#app');
+
+let state = {
+  screen: 'list',      // list | detail | mapping | done | settings
+  events: [],
+  currentEventId: null,
+  currentParticipants: [],
+  pendingImport: null,  // {headers, rows}
+  colMap: {name:'', email:''},
+  search: '',
+  settings: {meno:'', email:'', dotaznik:'', kalendar:''}
+};
+
+function showToast(msg){
+  const t = el('#toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 2200);
+}
+
+async function storeGet(key){
+  try{
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){ return null; }
+}
+async function storeSet(key, value){
+  try{
+    localStorage.setItem(key, JSON.stringify(value));
+    return true;
+  }catch(e){ showToast('Chyba pri ukladaní'); return false; }
+}
+async function storeDelete(key){
+  try{ localStorage.removeItem(key); return true; }
+  catch(e){ return false; }
+}
+
+function uid(){ return Math.random().toString(36).slice(2,10); }
+
+async function loadEvents(){
+  const ev = await storeGet('events');
+  state.events = ev || [];
+}
+async function saveEvents(){
+  await storeSet('events', state.events);
+}
+async function loadSettings(){
+  const s = await storeGet('settings');
+  state.settings = s || {meno:'', email:'', dotaznik:'', kalendar:''};
+}
+async function saveSettings(){
+  await storeSet('settings', state.settings);
+}
+function getSignature(){
+  if(state.settings.meno) return state.settings.meno;
+  if(state.settings.email) return state.settings.email.split('@')[0];
+  return '';
+}
+
+// ---------- Export zoznamu účastníkov (CSV) ----------
+function csvEscape(v){
+  const s = (v===null||v===undefined) ? '' : String(v);
+  return /[;"\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+}
+function statusLabel(s){
+  if(s==='yes') return 'Prišiel';
+  if(s==='no') return 'Neprišiel';
+  return 'Čaká sa';
+}
+function downloadCSV(rows, filename){
+  const csv = rows.map(r => r.map(csvEscape).join(';')).join('\r\n');
+  const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+function exportParticipantsCSV(list, ev, filename, includeStatus){
+  const header = ['Meno','Firma','IČO','E-mail','Telefón'];
+  if(includeStatus) header.push('Stav');
+  const rows = [header];
+  list.forEach(p => {
+    const row = [p.meno, p.firma||'', p.ico||'', p.email||'', p.telefon||''];
+    if(includeStatus) row.push(statusLabel(p.status));
+    rows.push(row);
+  });
+  downloadCSV(rows, filename);
+  showToast('Zoznam stiahnutý');
+}
+
+// ---------- Prenos termínu medzi zariadeniami (mobil <-> PC) ----------
+async function exportEventTransfer(ev){
+  const participants = await storeGet('participants:'+ev.id) || [];
+  const data = {type:'prezencka-termin', version:1, event: ev, participants, settings: state.settings};
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `prenos_${(ev.mesto||'termin').replace(/[^a-zA-Z0-9á-žÁ-Ž]+/g,'_')}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+  showToast('Súbor na prenos stiahnutý – pošli/otvor ho na druhom zariadení');
+}
+
+function importEventTransfer(file){
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try{
+      const data = JSON.parse(e.target.result);
+      if(!data.event) throw new Error('invalid');
+      const existingIdx = state.events.findIndex(x => x.id === data.event.id);
+      if(existingIdx >= 0){
+        if(!confirm(`Termín "${data.event.mesto}" už na tomto zariadení existuje. Prepísať ho novšou verziou zo súboru?`)) return;
+        state.events[existingIdx] = data.event;
+      } else {
+        state.events.push(data.event);
+      }
+      await saveEvents();
+      await storeSet('participants:'+data.event.id, data.participants || []);
+      if(data.settings && !state.settings.meno && !state.settings.email){
+        state.settings = data.settings;
+        await saveSettings();
+      }
+      showToast(`Termín "${data.event.mesto}" naimportovaný`);
+      state.screen = 'list';
+      render();
+    }catch(err){ showToast('Neplatný súbor na prenos'); }
+  };
+  reader.readAsText(file, 'UTF-8');
+}
+async function loadParticipants(eventId){
+  const p = await storeGet('participants:'+eventId);
+  state.currentParticipants = p || [];
+}
+async function saveParticipants(eventId){
+  await storeSet('participants:'+eventId, state.currentParticipants);
+}
+
+function fmtDate(d){
+  if(!d) return '';
+  const [y,m,day] = d.split('-');
+  return `${day}.${m}.${y}`;
+}
+
+// ---------- CSV parsing ----------
+function detectDelimiter(text){
+  const firstLine = text.split(/\r?\n/)[0] || '';
+  const counts = {',': (firstLine.match(/,/g)||[]).length, ';': (firstLine.match(/;/g)||[]).length, '\t': (firstLine.match(/\t/g)||[]).length};
+  return Object.entries(counts).sort((a,b)=>b[1]-a[1])[0][0];
+}
+function parseCSV(text){
+  const delim = detectDelimiter(text);
+  const lines = text.split(/\r?\n/).filter(l => l.trim().length>0);
+  if(lines.length===0) return {headers:[], rows:[]};
+  const parseLine = (line) => {
+    // simple CSV split respecting quotes
+    const out=[]; let cur=''; let inQ=false;
+    for(let i=0;i<line.length;i++){
+      const c=line[i];
+      if(c==='"'){ inQ=!inQ; continue; }
+      if(c===delim && !inQ){ out.push(cur.trim()); cur=''; continue; }
+      cur+=c;
+    }
+    out.push(cur.trim());
+    return out;
+  };
+  const headers = parseLine(lines[0]);
+  const rows = lines.slice(1).map(parseLine);
+  return {headers, rows};
+}
+function guessCol(headers, keywords){
+  const idx = headers.findIndex(h => keywords.some(k => h.toLowerCase().includes(k)));
+  return idx>=0 ? idx : 0;
+}
+
+// ---------- KROS Excel format (Firma/Osoba/IČO/E-mail/Telefón/Osôb/Vstupenka) ----------
+function excelCellToStr(c){ return (c===null||c===undefined) ? '' : String(c).trim(); }
+
+function parseSkDateToISO(str){
+  const s = excelCellToStr(str);
+  const m = s.match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/);
+  if(m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+  return '';
+}
+
+function parseKrosExcel(aoa){
+  let nazov='', mesto='', datum='';
+  let skolenieRow = -1;
+  for(let i=0;i<aoa.length;i++){
+    const row = aoa[i]||[];
+    const found = row.find(c => typeof c==='string' && c.toLowerCase().includes('školenie'));
+    if(found){ skolenieRow = i; nazov = found.split(':').slice(1).join(':').trim(); break; }
+  }
+  if(skolenieRow>=0 && aoa[skolenieRow+1]){
+    const r = aoa[skolenieRow+1];
+    mesto = excelCellToStr(r[0]);
+    datum = parseSkDateToISO(r[1]);
+  }
+  let headerRowIdx=-1;
+  for(let i=0;i<aoa.length;i++){
+    const row = (aoa[i]||[]).map(c=>excelCellToStr(c).toLowerCase());
+    if(row.includes('osoba') && row.some(c=>c.includes('mail'))){ headerRowIdx=i; break; }
+  }
+  if(headerRowIdx<0) return null;
+  const headers = (aoa[headerRowIdx]||[]).map(excelCellToStr);
+  const colOsoba = headers.findIndex(h=>h.toLowerCase()==='osoba');
+  const colEmail = headers.findIndex(h=>h.toLowerCase().includes('mail'));
+  const colFirma = headers.findIndex(h=>h.toLowerCase()==='firma');
+  const colIco = headers.findIndex(h=>h.toLowerCase().includes('ičo')||h.toLowerCase().includes('ico'));
+  const colTelefon = headers.findIndex(h=>h.toLowerCase().includes('telefón')||h.toLowerCase().includes('telefon'));
+  if(colOsoba<0) return null;
+  const participants = [];
+  for(let i=headerRowIdx+1;i<aoa.length;i++){
+    const row = aoa[i]||[];
+    const meno = excelCellToStr(row[colOsoba]);
+    if(!meno) continue;
+    participants.push({
+      id: uid(),
+      meno,
+      email: colEmail>=0 ? excelCellToStr(row[colEmail]) : '',
+      firma: colFirma>=0 ? excelCellToStr(row[colFirma]) : '',
+      ico: colIco>=0 ? excelCellToStr(row[colIco]) : '',
+      telefon: colTelefon>=0 ? excelCellToStr(row[colTelefon]) : '',
+      status: 'wait'
+    });
+  }
+  if(participants.length===0) return null;
+  return {nazov, mesto, datum, participants};
+}
+
+function readExcelFile(file, callback){
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try{
+      const data = new Uint8Array(ev.target.result);
+      const wb = XLSX.read(data, {type:'array'});
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const aoa = XLSX.utils.sheet_to_json(sheet, {header:1, raw:false, defval:''});
+      callback(null, {aoa, sheet});
+    }catch(err){ callback(err, null); }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// Merge freshly-parsed participants into an existing list: enrich matches (by e-mail, else by meno)
+// with missing fields (ico/telefon/firma/email) instead of creating duplicates. Returns counts.
+function mergeParticipants(existingList, incomingList){
+  let updated = 0, added = 0;
+  incomingList.forEach(inc => {
+    const incEmail = (inc.email||'').toLowerCase();
+    let match = null;
+    if(incEmail) match = existingList.find(p => (p.email||'').toLowerCase() === incEmail);
+    if(!match) match = existingList.find(p => p.meno.trim().toLowerCase() === inc.meno.trim().toLowerCase());
+    if(match){
+      let changed = false;
+      ['email','ico','telefon','firma'].forEach(f => {
+        if(!match[f] && inc[f]){ match[f] = inc[f]; changed = true; }
+      });
+      if(changed) updated++;
+    } else {
+      existingList.push(inc);
+      added++;
+    }
+  });
+  return {updated, added};
+}
+
+// ---------- Rendering ----------
+function render(){
+  if(state.screen==='list') renderList();
+  else if(state.screen==='new') renderNewEvent();
+  else if(state.screen==='detail') renderDetail();
+  else if(state.screen==='mapping') renderMapping();
+  else if(state.screen==='done') renderDone();
+  else if(state.screen==='settings') renderSettings();
+  const s = el('#btnSettings');
+  if(s) s.onclick = () => { state.settingsReturnScreen = state.screen; state.screen='settings'; render(); };
+}
+
+function renderHeader(){
+  return `
+  <header class="top">
+    <div class="brand">
+      <div class="mark">✓</div>
+      <div><h1>Prezenčná listina</h1><p>Online zaškrtávanie účasti</p></div>
+    </div>
+    <button class="btn-ghost btn-sm" id="btnSettings" title="Nastavenia podpisu">⚙ Podpis</button>
+  </header>`;
+}
+
+function renderList(){
+  const items = state.events.slice().sort((a,b)=> (b.datum||'').localeCompare(a.datum||''));
+  app.innerHTML = `
+    ${renderHeader()}
+    <div style="display:flex; justify-content:flex-end; gap:8px; margin-bottom:14px; flex-wrap:wrap;">
+      <button class="btn-ghost btn-sm" id="btnImportTransfer">⇄ Načítať termín z iného zariadenia</button>
+      <input type="file" id="importTransferFile" class="hidden-file-input" accept=".json">
+      <button class="btn-primary" id="btnNew">+ Nový termín</button>
+    </div>
+    ${items.length===0 ? `
+      <div class="empty"><div class="big">🗒️</div>Zatiaľ nemáš žiadny termín.<br>Založ si prvý cez tlačidlo hore.</div>
+    ` : items.map(ev => `
+      <div class="event-item" data-id="${ev.id}">
+        <div style="flex:1; min-width:0;">
+          <div class="em">${ev.mesto || 'Bez názvu'}</div>
+          <div class="es">${ev.nazov ? ev.nazov+' · ' : ''}${fmtDate(ev.datum)}</div>
+        </div>
+        <button class="btn-ghost btn-sm" data-del="${ev.id}" title="Vymazať termín" style="border-color:transparent; color:var(--danger); margin-right:4px;">🗑</button>
+        <div class="chev">›</div>
+      </div>
+    `).join('')}
+  `;
+  el('#btnNew').onclick = () => { state.screen='new'; render(); };
+  el('#btnImportTransfer').onclick = () => el('#importTransferFile').click();
+  el('#importTransferFile').onchange = (e) => {
+    const file = e.target.files[0];
+    if(file) importEventTransfer(file);
+    e.target.value = '';
+  };
+  items.forEach(ev => {
+    const row = el(`.event-item[data-id="${ev.id}"]`);
+    row.onclick = async () => {
+      state.currentEventId = ev.id;
+      await loadParticipants(ev.id);
+      state.screen='detail';
+      render();
+    };
+    const delBtn = row.querySelector(`[data-del="${ev.id}"]`);
+    delBtn.onclick = async (e) => {
+      e.stopPropagation();
+      if(!confirm(`Naozaj vymazať termín "${ev.mesto}"${ev.nazov ? ' · '+ev.nazov : ''} (${fmtDate(ev.datum)}) aj s celou prezenčkou? Toto sa nedá vrátiť späť.`)) return;
+      state.events = state.events.filter(x => x.id !== ev.id);
+      await saveEvents();
+      await storeDelete('participants:'+ev.id);
+      showToast('Termín vymazaný');
+      render();
+    };
+  });
+}
+
+function renderNewEvent(){
+  app.innerHTML = `
+    ${renderHeader()}
+    <button class="backlink" id="back">← Späť na zoznam</button>
+    <div class="card">
+      <h2>Rýchly import z KROS Excelu</h2>
+      <p class="hint">Nahraj export z admin.kros.sk (.xlsx) – mesto, dátum, typ školenia aj účastníci sa rozpoznajú automaticky.</p>
+      <div class="dropzone" id="krosDropzone">
+        📊 Klikni a vyber Excel súbor (.xlsx)
+        <input type="file" id="krosFileInput" class="hidden-file-input" accept=".xlsx,.xls">
+      </div>
+      <div id="krosStatus" class="hint" style="margin-top:8px;"></div>
+    </div>
+    <div class="card">
+      <h2>Údaje termínu</h2>
+      <p class="hint">Skontroluj/doplň polia nižšie (po importe Excelu sa väčšina vyplní sama).</p>
+      <div class="row2">
+        <div class="field"><label>Mesto</label><input type="text" id="fMesto" placeholder="napr. Žilina"></div>
+        <div class="field"><label>Dátum</label><input type="date" id="fDatum"></div>
+      </div>
+      <div class="field"><label>Názov stretnutia (voliteľné)</label><input type="text" id="fNazov" placeholder="napr. Prezentácia OMEGA"></div>
+      <div class="field"><label>Link na dotazník (pre prítomných)</label><input type="url" id="fDotaznik" placeholder="https://..." value="${state.settings.dotaznik||''}"></div>
+      <div class="field"><label>Link na tvoj kalendár (pre neprítomných)</label><input type="url" id="fKalendar" placeholder="https://..." value="${state.settings.kalendar||''}"></div>
+      ${(state.settings.dotaznik || state.settings.kalendar) ? '<p class="hint">Predvyplnené naposledy použitými odkazmi – pokojne uprav, ak sa pre tento termín líšia.</p>' : ''}
+      <button class="btn-primary" id="btnSave">Vytvoriť termín</button>
+    </div>
+  `;
+  el('#back').onclick = () => { state.screen='list'; render(); };
+
+  el('#krosDropzone').onclick = () => el('#krosFileInput').click();
+  el('#krosFileInput').onchange = (e) => {
+    const file = e.target.files[0];
+    if(!file) return;
+    const status = el('#krosStatus');
+    status.textContent = 'Načítavam súbor...';
+    status.style.color = 'var(--muted)';
+    readExcelFile(file, (err, res) => {
+      if(err){ status.textContent = '⚠ Nepodarilo sa prečítať súbor.'; status.style.color = 'var(--danger)'; return; }
+      const result = parseKrosExcel(res.aoa);
+      if(result){
+        if(result.mesto) el('#fMesto').value = result.mesto;
+        if(result.nazov) el('#fNazov').value = result.nazov;
+        if(result.datum) el('#fDatum').value = result.datum;
+        state.pendingKrosParticipants = result.participants;
+        status.textContent = `✓ Rozpoznané: ${result.mesto || '?'}${result.datum ? ', '+fmtDate(result.datum) : ''}. Načítaných ${result.participants.length} účastníkov. Doplň linky nižšie a ulož termín.`;
+        status.style.color = 'var(--accent)';
+      } else {
+        status.textContent = '⚠ Nepodarilo sa automaticky rozpoznať formát súboru. Zadaj údaje ručne, účastníkov doplníš po uložení cez "Doplniť ďalších".';
+        status.style.color = 'var(--warn)';
+      }
+    });
+  };
+
+  el('#btnSave').onclick = async () => {
+    const mesto = el('#fMesto').value.trim();
+    if(!mesto){ showToast('Zadaj mesto'); return; }
+    const ev = {
+      id: uid(),
+      mesto,
+      datum: el('#fDatum').value,
+      nazov: el('#fNazov').value.trim(),
+      dotaznik: el('#fDotaznik').value.trim(),
+      kalendar: el('#fKalendar').value.trim(),
+      finished: false
+    };
+    state.events.push(ev);
+    await saveEvents();
+    state.settings.dotaznik = ev.dotaznik;
+    state.settings.kalendar = ev.kalendar;
+    await saveSettings();
+    state.currentEventId = ev.id;
+    state.currentParticipants = state.pendingKrosParticipants || [];
+    await saveParticipants(ev.id);
+    state.pendingKrosParticipants = null;
+    state.screen='detail';
+    render();
+  };
+}
+
+function currentEvent(){
+  return state.events.find(e => e.id===state.currentEventId);
+}
+
+function renderDetail(){
+  const ev = currentEvent();
+  if(!ev){ state.screen='list'; return render(); }
+  const total = state.currentParticipants.length;
+  const yes = state.currentParticipants.filter(p=>p.status==='yes').length;
+  const no = state.currentParticipants.filter(p=>p.status==='no').length;
+  const wait = total - yes - no;
+  const pct = total ? Math.round((yes+no)/total*100) : 0;
+  const circumference = 2*Math.PI*30;
+  const dash = circumference * (pct/100);
+
+  const filtered = state.currentParticipants
+    .filter(p => !state.search || p.meno.toLowerCase().includes(state.search.toLowerCase()) || (p.email||'').toLowerCase().includes(state.search.toLowerCase()))
+    .slice()
+    .sort((a,b) => (a.status==='wait'?0:1) - (b.status==='wait'?0:1));
+
+  app.innerHTML = `
+    ${renderHeader()}
+    <button class="backlink" id="back">← Späť na zoznam</button>
+    <div class="card">
+      <h2>${ev.mesto}${ev.nazov ? ' · '+ev.nazov : ''}</h2>
+      <p class="hint">${fmtDate(ev.datum) || 'Dátum nezadaný'}</p>
+      <div class="ring-wrap">
+        <div class="ring">
+          <svg width="76" height="76">
+            <circle cx="38" cy="38" r="30" stroke="#E4E3DD" stroke-width="8" fill="none"/>
+            <circle cx="38" cy="38" r="30" stroke="#0E6E5C" stroke-width="8" fill="none"
+              stroke-dasharray="${circumference}" stroke-dashoffset="${circumference-dash}" stroke-linecap="round"/>
+          </svg>
+          <div class="num">${pct}%</div>
+        </div>
+        <div class="stats">
+          <div class="stat"><b>${total}</b>spolu</div>
+          <div class="stat"><b style="color:var(--accent)">${yes}</b>prišli</div>
+          <div class="stat"><b style="color:var(--danger)">${no}</b>neprišli</div>
+          <div class="stat"><b>${wait}</b>čaká sa</div>
+        </div>
+      </div>
+    </div>
+
+    ${state.showAddPerson ? `
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <h2 style="margin:0;">Pridať účastníka, ktorý nebol v prezenčke</h2>
+        <button class="btn-ghost btn-sm" id="btnCancelAddPerson">Zrušiť</button>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Meno</label><input type="text" id="apMeno" placeholder="Ján"></div>
+        <div class="field"><label>Priezvisko</label><input type="text" id="apPriezvisko" placeholder="Novák"></div>
+      </div>
+      <div class="field"><label>Firma</label><input type="text" id="apFirma" placeholder="Novák, s.r.o."></div>
+      <div class="row2">
+        <div class="field"><label>E-mail</label><input type="email" id="apEmail" placeholder="jan.novak@firma.sk"></div>
+        <div class="field"><label>Telefón</label><input type="text" id="apTelefon" placeholder="09XX XXX XXX"></div>
+      </div>
+      <div class="field"><label>IČO (voliteľné)</label><input type="text" id="apIco" placeholder="12345678"></div>
+      <button class="btn-primary" id="btnSaveAddPerson">Pridať do prezenčky</button>
+    </div>
+    ` : ''}
+
+    ${(total===0 || state.showImport) ? `
+    <div class="card">
+      ${total>0 ? `<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;"><h2 style="margin:0;">Doplniť ďalších ľudí</h2><button class="btn-ghost btn-sm" id="btnCancelImport">Zrušiť</button></div>` : `<h2>Nahrať zoznam prihlásených</h2>`}
+      <p class="hint">Vlož CSV/Excel export z KROS admin systému (skopírovaný obsah alebo súbor).</p>
+      <div class="dropzone" id="dropzone">
+        📄 Klikni a vyber súbor (.xlsx alebo .csv), alebo vlož obsah nižšie
+        <input type="file" id="fileInput" class="hidden-file-input" accept=".csv,.txt,.xlsx,.xls">
+      </div>
+      <div style="margin-top:12px;">
+        <label>...alebo prilep obsah priamo</label>
+        <textarea id="pasteArea" rows="5" placeholder="Meno;Priezvisko;E-mail&#10;Jana;Nováková;jana@example.sk"></textarea>
+        <button class="btn-primary btn-sm" id="btnParsePaste" style="margin-top:8px;">Spracovať vložený text</button>
+      </div>
+      <p style="margin-top:14px; border-top:1px solid var(--line); padding-top:12px;">
+        <button class="btn-ghost btn-sm" id="btnOpenAddPerson">+ Pridať len jedného účastníka ručne</button>
+      </p>
+    </div>
+    ` : `
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; gap:8px; flex-wrap:wrap;">
+        <h2 style="margin:0;">Prezenčná listina</h2>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button class="btn-ghost btn-sm" id="btnTransferOut">⇄ Preniesť na iné zariadenie</button>
+          <button class="btn-ghost btn-sm" id="btnDownloadList">⬇ Stiahnuť zoznam</button>
+          <button class="btn-ghost btn-sm" id="btnOpenAddPerson">+ Pridať účastníka</button>
+          <button class="btn-ghost btn-sm" id="btnAddMore">+ Doplniť zo súboru</button>
+        </div>
+      </div>
+      <input type="text" class="searchbar" id="searchBox" placeholder="Hľadať meno alebo e-mail..." value="${state.search}">
+      <div class="plist">
+        ${filtered.map(p => `
+          <div class="prow" data-pid="${p.id}">
+            <div class="pinfo">
+              <div class="pname">${p.meno}</div>
+              <div class="pemail">${p.email||'bez e-mailu'}${p.firma ? ' · '+p.firma : ''}</div>
+              ${(p.ico || p.telefon) ? `<div class="pmeta">${p.ico ? 'IČO '+p.ico : ''}${p.ico && p.telefon ? ' · ' : ''}${p.telefon || ''}</div>` : ''}
+            </div>
+            <div class="toggle3">
+              <button data-set="wait" class="${p.status==='wait'?'active-wait':''}">?</button>
+              <button data-set="yes" class="${p.status==='yes'?'active-yes':''}">Prišiel</button>
+              <button data-set="no" class="${p.status==='no'?'active-no':''}">Nie</button>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+    <div class="card" style="text-align:center;">
+      ${ev.finished ? `
+        <p class="hint" style="margin-bottom:10px;">Stretnutie je ukončené.</p>
+        <button class="btn-ghost btn-sm" id="btnReopenMail">Zobraziť pripravené e-maily</button>
+      ` : `
+        <button class="btn-primary" id="btnFinish" ${wait>0?'':''}>Ukončiť stretnutie a pripraviť e-maily</button>
+        ${wait>0 ? `<p class="hint" style="margin-top:8px;">Pozor: ${wait} ${wait===1?'osoba nemá':'osôb nemá'} zaškrtnuté "Prišiel" – ${wait===1?'bude':'budú'} automaticky zaradení medzi neprítomných.</p>` : ''}
+      `}
+    </div>
+    `}
+  `;
+
+  el('#back').onclick = () => { state.screen='list'; render(); };
+
+  if(el('#btnOpenAddPerson')){
+    el('#btnOpenAddPerson').onclick = () => { state.showAddPerson = true; render(); };
+  }
+  if(el('#btnTransferOut')){
+    el('#btnTransferOut').onclick = () => exportEventTransfer(ev);
+  }
+  if(el('#btnDownloadList')){
+    el('#btnDownloadList').onclick = () => {
+      const safeName = (ev.mesto||'termin').replace(/[^a-zA-Z0-9á-žÁ-Ž]+/g,'_');
+      exportParticipantsCSV(state.currentParticipants, ev, `prezencka_${safeName}.csv`, true);
+    };
+  }
+  if(el('#btnCancelAddPerson')){
+    el('#btnCancelAddPerson').onclick = () => { state.showAddPerson = false; render(); };
+  }
+  if(el('#btnSaveAddPerson')){
+    el('#btnSaveAddPerson').onclick = async () => {
+      const meno = el('#apMeno').value.trim();
+      const priezvisko = el('#apPriezvisko').value.trim();
+      if(!meno && !priezvisko){ showToast('Zadaj aspoň meno alebo priezvisko'); return; }
+      const person = {
+        id: uid(),
+        meno: [meno, priezvisko].filter(Boolean).join(' '),
+        email: el('#apEmail').value.trim(),
+        telefon: el('#apTelefon').value.trim(),
+        ico: el('#apIco').value.trim(),
+        firma: el('#apFirma').value.trim(),
+        status: 'yes'
+      };
+      state.currentParticipants.push(person);
+      await saveParticipants(ev.id);
+      state.showAddPerson = false;
+      showToast('Účastník pridaný');
+      render();
+    };
+  }
+
+  if(total>0 && state.showImport && el('#btnCancelImport')){
+    el('#btnCancelImport').onclick = () => { state.showImport = false; render(); };
+  }
+
+  if(total===0 || state.showImport){
+    el('#dropzone').onclick = () => el('#fileInput').click();
+    el('#fileInput').onchange = (e) => {
+      const file = e.target.files[0];
+      if(!file) return;
+      const isExcel = /\.xlsx?$/i.test(file.name);
+      if(isExcel){
+        readExcelFile(file, async (err, res) => {
+          if(err){ showToast('Nepodarilo sa načítať Excel súbor'); return; }
+          const kros = parseKrosExcel(res.aoa);
+          if(kros && kros.participants.length){
+            const {updated, added} = mergeParticipants(state.currentParticipants, kros.participants);
+            await saveParticipants(ev.id);
+            state.showImport = false;
+            const parts = [];
+            if(added) parts.push(`pridaných ${added}`);
+            if(updated) parts.push(`doplnené údaje pri ${updated}`);
+            showToast(parts.length ? parts.join(', ') : 'Žiadne zmeny – všetci už boli v zozname');
+            render();
+          } else {
+            const csvText = XLSX.utils.sheet_to_csv(res.sheet);
+            state.pendingImport = parseCSV(csvText);
+            state.screen='mapping';
+            render();
+          }
+        });
+      } else {
+        const reader = new FileReader();
+        reader.onload = (ev2) => {
+          state.pendingImport = parseCSV(ev2.target.result);
+          state.screen='mapping';
+          render();
+        };
+        reader.readAsText(file, 'UTF-8');
+      }
+    };
+    el('#btnParsePaste').onclick = () => {
+      const txt = el('#pasteArea').value;
+      if(!txt.trim()){ showToast('Vlož najprv nejaký text'); return; }
+      state.pendingImport = parseCSV(txt);
+      state.screen='mapping';
+      render();
+    };
+  } else {
+    el('#searchBox').oninput = (e) => { state.search = e.target.value; render(); };
+    el('#searchBox').focus();
+    el('#searchBox').setSelectionRange(state.search.length, state.search.length);
+    filtered.forEach(p => {
+      const row = el(`.prow[data-pid="${p.id}"]`);
+      row.querySelectorAll('button').forEach(btn => {
+        btn.onclick = async () => {
+          p.status = btn.dataset.set;
+          await saveParticipants(ev.id);
+          render();
+        };
+      });
+    });
+    if(el('#btnAddMore')) el('#btnAddMore').onclick = () => {
+      state.showImport = true;
+      render();
+    };
+    if(el('#btnFinish')) el('#btnFinish').onclick = async () => {
+      ev.finished = true;
+      await saveEvents();
+      state.screen = 'done';
+      render();
+    };
+    if(el('#btnReopenMail')) el('#btnReopenMail').onclick = () => {
+      state.screen = 'done';
+      render();
+    };
+  }
+}
+
+function renderMapping(){
+  const {headers, rows} = state.pendingImport;
+  const guessName = guessCol(headers, ['meno','name','priezvisko']);
+  const guessEmail = guessCol(headers, ['mail','email']);
+
+  app.innerHTML = `
+    ${renderHeader()}
+    <button class="backlink" id="back">← Späť</button>
+    <div class="card">
+      <h2>Priraď stĺpce</h2>
+      <p class="hint">Našli sme ${rows.length} riadkov. Vyber, ktorý stĺpec obsahuje meno a ktorý e-mail.</p>
+      <div class="row2">
+        <div class="field">
+          <label>Stĺpec s menom</label>
+          <select id="selName">${headers.map((h,i)=>`<option value="${i}" ${i===guessName?'selected':''}>${h||'(stĺpec '+(i+1)+')'}</option>`).join('')}</select>
+        </div>
+        <div class="field">
+          <label>Stĺpec s e-mailom</label>
+          <select id="selEmail">${headers.map((h,i)=>`<option value="${i}" ${i===guessEmail?'selected':''}>${h||'(stĺpec '+(i+1)+')'}</option>`).join('')}</select>
+        </div>
+      </div>
+      <table class="maptable">
+        <thead><tr><th>Náhľad mena</th><th>Náhľad e-mailu</th></tr></thead>
+        <tbody id="previewBody">
+          ${rows.slice(0,3).map(r => `<tr><td>${r[guessName]||''}</td><td>${r[guessEmail]||''}</td></tr>`).join('')}
+        </tbody>
+      </table>
+      <button class="btn-primary" id="btnConfirm" style="margin-top:14px;">Naimportovať ${rows.length} ľudí</button>
+    </div>
+  `;
+  el('#back').onclick = () => { state.screen='detail'; render(); };
+
+  const updatePreview = () => {
+    const ni = parseInt(el('#selName').value), ei = parseInt(el('#selEmail').value);
+    el('#previewBody').innerHTML = rows.slice(0,3).map(r => `<tr><td>${r[ni]||''}</td><td>${r[ei]||''}</td></tr>`).join('');
+  };
+  el('#selName').onchange = updatePreview;
+  el('#selEmail').onchange = updatePreview;
+
+  el('#btnConfirm').onclick = async () => {
+    const ni = parseInt(el('#selName').value), ei = parseInt(el('#selEmail').value);
+    const newOnes = rows
+      .filter(r => (r[ni]||'').trim().length>0)
+      .map(r => ({ id: uid(), meno: r[ni].trim(), email: (r[ei]||'').trim(), status:'wait' }));
+    state.currentParticipants = state.currentParticipants.concat(newOnes);
+    await saveParticipants(state.currentEventId);
+    state.showImport = false;
+    state.screen = 'detail';
+    render();
+  };
+}
+
+function fillTemplate(tpl, p, ev){
+  return tpl
+    .replaceAll('{meno}', p.meno)
+    .replaceAll('{mesto}', ev.mesto)
+    .replaceAll('{dotaznik_link}', ev.dotaznik || '(link nezadaný)')
+    .replaceAll('{kalendar_link}', ev.kalendar || '(link nezadaný)')
+    .replaceAll('{podpis}', getSignature() || '(nastav si podpis cez ⚙ Podpis)');
+}
+
+function renderDone(){
+  const ev = currentEvent();
+  const yesList = state.currentParticipants.filter(p=>p.status==='yes');
+  const noList = state.currentParticipants.filter(p=>p.status!=='yes');
+
+  const defaultYesSubject = `Ďakujeme za účasť – ${ev.mesto}`;
+  const defaultYesBody = `Dobrý deň {meno},\n\nďakujeme, že ste sa zúčastnili nášho stretnutia v meste {mesto}.\n\nBudeme radi, ak si nájdete pár minút a vyplníte krátky dotazník so spätnou väzbou.\n\nLink na vyplnenie dotazníka: {dotaznik_link}\n\nĎakujeme a prajeme pekný deň.\n\n{podpis}`;
+  const defaultNoSubject = `Nepodarilo sa Vám prísť na KROS raňajky?`;
+  const defaultNoBody = `Dobrý deň {meno},\n\nvšimli sme si, že ste sa nezúčastnili plánovaného stretnutia v meste {mesto}. Chápeme, že vám mohlo niečo prísť do cesty.\n\nRadi si s vami dohodneme individuálny termín – vyberte si voľný čas priamo v mojom kalendári.\n\nLink na môj kalendár: {kalendar_link}\n\nBudeme sa tešiť na stretnutie.\n\n{podpis}`;
+
+  if(!state._yesTpl) state._yesTpl = {subject: defaultYesSubject, body: defaultYesBody};
+  if(!state._noTpl) state._noTpl = {subject: defaultNoSubject, body: defaultNoBody};
+
+  app.innerHTML = `
+    ${renderHeader()}
+    <button class="backlink" id="back">← Späť na termín</button>
+    <div class="card">
+      <h2>Pripravené e-maily · ${ev.mesto}</h2>
+      <p class="hint">Uprav text šablóny podľa potreby, potom pri každej osobe klikni „Otvoriť e-mail“ – otvorí sa ti e-mailový klient s predvyplneným textom, stačí odoslať. Zástupné texty <code>{meno}</code>, <code>{mesto}</code>, <code>{dotaznik_link}</code>, <code>{kalendar_link}</code>, <code>{podpis}</code> sa nahradia automaticky. Podpis si nastavíš cez „⚙ Podpis“ hore.</p>
+    </div>
+
+    <div class="email-block">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+        <h3 style="margin:0;"><span class="pill yes">Prítomní · ${yesList.length}</span> Poďakovanie + dotazník</h3>
+        <button class="btn-ghost btn-sm" id="btnDownloadYes">⬇ Stiahnuť zoznam prítomných</button>
+      </div>
+      <div class="field"><label>Predmet</label><input type="text" id="yesSubject" value="${state._yesTpl.subject}"></div>
+      <div class="field"><label>Text správy</label><textarea id="yesBody" rows="6">${state._yesTpl.body}</textarea></div>
+      ${yesList.length===0 ? '<p class="hint">Nikto zatiaľ nie je označený ako prítomný.</p>' : yesList.map(p => `
+        <div class="recip-row">
+          <div><div class="recip-name">${p.meno}</div><div class="recip-email">${p.email||'chýba e-mail'}</div></div>
+          <button class="btn-ghost btn-sm" data-mailto="yes" data-pid="${p.id}" ${p.email?'':'disabled'}>Otvoriť e-mail</button>
+        </div>
+      `).join('')}
+    </div>
+
+    <div class="email-block">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+        <h3 style="margin:0;"><span class="pill no">Neprítomní · ${noList.length}</span> Info + link na kalendár</h3>
+        <button class="btn-ghost btn-sm" id="btnDownloadNo">⬇ Stiahnuť zoznam neprítomných</button>
+      </div>
+      <div class="field"><label>Predmet</label><input type="text" id="noSubject" value="${state._noTpl.subject}"></div>
+      <div class="field"><label>Text správy</label><textarea id="noBody" rows="6">${state._noTpl.body}</textarea></div>
+      ${noList.length===0 ? '<p class="hint">Nikto zatiaľ nie je označený ako neprítomný.</p>' : noList.map(p => `
+        <div class="recip-row">
+          <div><div class="recip-name">${p.meno}</div><div class="recip-email">${p.email||'chýba e-mail'}</div></div>
+          <button class="btn-ghost btn-sm" data-mailto="no" data-pid="${p.id}" ${p.email?'':'disabled'}>Otvoriť e-mail</button>
+        </div>
+      `).join('')}
+    </div>
+  `;
+
+  el('#back').onclick = () => { state.screen='detail'; render(); };
+  const safeNameDone = (ev.mesto||'termin').replace(/[^a-zA-Z0-9á-žÁ-Ž]+/g,'_');
+  if(el('#btnDownloadYes')) el('#btnDownloadYes').onclick = () => exportParticipantsCSV(yesList, ev, `pritomni_${safeNameDone}.csv`, false);
+  if(el('#btnDownloadNo')) el('#btnDownloadNo').onclick = () => exportParticipantsCSV(noList, ev, `nepritomni_${safeNameDone}.csv`, false);
+  el('#yesSubject').oninput = (e)=> state._yesTpl.subject = e.target.value;
+  el('#yesBody').oninput = (e)=> state._yesTpl.body = e.target.value;
+  el('#noSubject').oninput = (e)=> state._noTpl.subject = e.target.value;
+  el('#noBody').oninput = (e)=> state._noTpl.body = e.target.value;
+
+  app.querySelectorAll('[data-mailto]').forEach(btn => {
+    btn.onclick = () => {
+      const kind = btn.dataset.mailto;
+      const p = state.currentParticipants.find(x=>x.id===btn.dataset.pid);
+      const tpl = kind==='yes' ? state._yesTpl : state._noTpl;
+      const subject = fillTemplate(tpl.subject, p, ev);
+      const body = fillTemplate(tpl.body, p, ev);
+      const url = `mailto:${encodeURIComponent(p.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+      window.location.href = url;
+    };
+  });
+}
+
+function renderSettings(){
+  app.innerHTML = `
+    ${renderHeader()}
+    <button class="backlink" id="back">← Späť</button>
+    <div class="card">
+      <h2>Podpis v e-mailoch</h2>
+      <p class="hint">Toto meno (alebo skratka z e-mailu) sa automaticky doplní na koniec pripravených e-mailov namiesto zástupného textu <code>{podpis}</code>.</p>
+      <div class="field"><label>Tvoje meno / priezvisko pre podpis</label><input type="text" id="setMeno" placeholder="napr. Ján Kráľik" value="${state.settings.meno||''}"></div>
+      <div class="field"><label>Tvoj e-mail (použije sa, ak meno nevyplníš – podpíše sa časťou pred @)</label><input type="email" id="setEmail" placeholder="jan.kralik@kros.sk" value="${state.settings.email||''}"></div>
+      <button class="btn-primary" id="btnSaveSettings">Uložiť</button>
+    </div>
+  `;
+  el('#back').onclick = () => { state.screen = state.settingsReturnScreen || 'list'; render(); };
+  el('#btnSaveSettings').onclick = async () => {
+    state.settings.meno = el('#setMeno').value.trim();
+    state.settings.email = el('#setEmail').value.trim();
+    await saveSettings();
+    showToast('Podpis uložený');
+    state.screen = state.settingsReturnScreen || 'list';
+    render();
+  };
+}
+
+(async function init(){
+  await loadEvents();
+  await loadSettings();
+  render();
+})();
+</script>
+</body>
+</html>
