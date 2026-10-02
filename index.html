@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <style>
   :root{
     --bg:#F7F7F4;
@@ -160,6 +161,13 @@
   .toast.show{opacity:1;}
 
   .helptext{font-size:12px; color:var(--muted); line-height:1.5;}
+  .sync{display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--muted);}
+  .sync .dot{width:8px; height:8px; border-radius:50%; background:var(--warn);}
+  .sync.ok .dot{background:var(--accent);}
+  .sync.err .dot{background:var(--danger);}
+  .head-actions{display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end;}
+  .login{max-width:420px; margin:40px auto 0;}
+  .migrate{background:var(--warn-dim); border:1px solid #EAD9B8;}
   code{background:#EFEEE9; padding:1px 5px; border-radius:5px; font-size:12px;}
 </style>
 </head>
@@ -189,6 +197,17 @@ function showToast(msg){
   setTimeout(()=>t.classList.remove('show'), 2200);
 }
 
+// ================== NASTAVENIE SUPABASE ==================
+// Sem vlož údaje zo Supabase: Project Settings → API
+const SUPABASE_URL = 'https://bgkyrxfsenxvodtoffei.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJna3lyeGZzZW54dm9kdG9mZmVpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA5MzkwMTcsImV4cCI6MjEwNjUxNTAxN30.0t5aTgQI0NOJCNaHTJQROo3dpvcHG8mCmlpjTerQDXU';
+// =========================================================
+
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+let currentUserEmail = '';
+let syncStatus = 'ok'; // ok | busy | err
+
+// Osobné veci (podpis, predvolené odkazy) ostávajú len v tomto prehliadači
 async function storeGet(key){
   try{
     const raw = localStorage.getItem(key);
@@ -201,19 +220,56 @@ async function storeSet(key, value){
     return true;
   }catch(e){ showToast('Chyba pri ukladaní'); return false; }
 }
-async function storeDelete(key){
-  try{ localStorage.removeItem(key); return true; }
-  catch(e){ return false; }
+
+function setSync(s){
+  syncStatus = s;
+  const b = el('#syncBadge');
+  if(!b) return;
+  b.className = 'sync ' + (s==='ok'?'ok':s==='err'?'err':'');
+  b.querySelector('span').textContent = s==='ok' ? 'Uložené online' : s==='err' ? 'Chyba spojenia' : 'Ukladám…';
+}
+function dbError(error){
+  console.error(error);
+  setSync('err');
+  showToast('Nepodarilo sa uložiť – skontroluj pripojenie a skús znova');
 }
 
 function uid(){ return Math.random().toString(36).slice(2,10); }
 
+// Snímky posledného stavu z databázy – ukladáme len to, čo sa naozaj zmenilo,
+// aby si kolegovia pri súčasnej práci navzájom neprepisovali zmeny.
+let eventsSnap = new Map();          // id -> JSON
+let partsSnap = new Map();           // eventId -> Map(pid -> JSON)
+
+function stripId(o){ const {id, ...rest} = o; return rest; }
+
 async function loadEvents(){
-  const ev = await storeGet('events');
-  state.events = ev || [];
+  const {data, error} = await sb.from('events').select('id,data');
+  if(error){ dbError(error); return; }
+  state.events = data.map(r => ({...r.data, id:r.id}));
+  eventsSnap = new Map(state.events.map(e => [e.id, JSON.stringify(stripId(e))]));
 }
 async function saveEvents(){
-  await storeSet('events', state.events);
+  setSync('busy');
+  const upserts = [];
+  const ids = new Set();
+  state.events.forEach(e => {
+    ids.add(e.id);
+    const j = JSON.stringify(stripId(e));
+    if(eventsSnap.get(e.id) !== j) upserts.push({id:e.id, data:stripId(e), updated_by:currentUserEmail, updated_at:new Date().toISOString()});
+  });
+  const deletes = [...eventsSnap.keys()].filter(id => !ids.has(id));
+  if(upserts.length){
+    const {error} = await sb.from('events').upsert(upserts);
+    if(error) return dbError(error);
+    upserts.forEach(u => eventsSnap.set(u.id, JSON.stringify(u.data)));
+  }
+  if(deletes.length){
+    const {error} = await sb.from('events').delete().in('id', deletes);
+    if(error) return dbError(error);
+    deletes.forEach(id => { eventsSnap.delete(id); partsSnap.delete(id); });
+  }
+  setSync('ok');
 }
 async function loadSettings(){
   const s = await storeGet('settings');
@@ -222,6 +278,98 @@ async function loadSettings(){
 async function saveSettings(){
   await storeSet('settings', state.settings);
 }
+
+async function fetchParticipants(eventId){
+  const {data, error} = await sb.from('participants').select('id,data').eq('event_id', eventId);
+  if(error){ dbError(error); return null; }
+  const list = data.map(r => ({...r.data, id:r.id}));
+  partsSnap.set(eventId, new Map(list.map(p => [p.id, JSON.stringify(stripId(p))])));
+  return list;
+}
+async function loadParticipants(eventId){
+  const list = await fetchParticipants(eventId);
+  state.currentParticipants = list || [];
+}
+async function saveParticipantList(eventId, list){
+  setSync('busy');
+  const snap = partsSnap.get(eventId) || new Map();
+  const upserts = [];
+  const ids = new Set();
+  list.forEach(p => {
+    ids.add(p.id);
+    const j = JSON.stringify(stripId(p));
+    if(snap.get(p.id) !== j) upserts.push({event_id:eventId, id:p.id, data:stripId(p), updated_by:currentUserEmail, updated_at:new Date().toISOString()});
+  });
+  const deletes = [...snap.keys()].filter(id => !ids.has(id));
+  if(upserts.length){
+    const {error} = await sb.from('participants').upsert(upserts);
+    if(error) return dbError(error);
+    upserts.forEach(u => snap.set(u.id, JSON.stringify(u.data)));
+  }
+  if(deletes.length){
+    const {error} = await sb.from('participants').delete().eq('event_id', eventId).in('id', deletes);
+    if(error) return dbError(error);
+    deletes.forEach(id => snap.delete(id));
+  }
+  partsSnap.set(eventId, snap);
+  setSync('ok');
+}
+async function saveParticipants(eventId){
+  await saveParticipantList(eventId, state.currentParticipants);
+}
+
+// ---------- Živé zmeny od kolegov ----------
+// Počas vypĺňania formulárov obrazovku neprekresľujeme, aby sa nestratil rozpísaný text.
+const busyScreens = () => ['new','mapping','settings'].includes(state.screen) || state.showAddPerson || state.showImport;
+let evTimer = null, pTimer = null;
+function subscribeRealtime(){
+  sb.channel('prezencka')
+    .on('postgres_changes', {event:'*', schema:'public', table:'events'}, () => {
+      clearTimeout(evTimer);
+      evTimer = setTimeout(async () => {
+        await loadEvents();
+        if(!busyScreens()) render();
+      }, 300);
+    })
+    .on('postgres_changes', {event:'*', schema:'public', table:'participants'}, (payload) => {
+      const evId = (payload.new && payload.new.event_id) || (payload.old && payload.old.event_id);
+      if(!state.currentEventId || evId !== state.currentEventId) return;
+      clearTimeout(pTimer);
+      pTimer = setTimeout(async () => {
+        await loadParticipants(state.currentEventId);
+        if(!busyScreens() && ['detail','done'].includes(state.screen)) render();
+      }, 300);
+    })
+    .subscribe(status => {
+      if(status === 'SUBSCRIBED') setSync('ok');
+      else if(status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') setSync('err');
+    });
+}
+
+// ---------- Jednorazový presun starých dát z tohto prehliadača ----------
+function localLegacyEvents(){
+  if(localStorage.getItem('migratedToCloud')) return [];
+  try{ return JSON.parse(localStorage.getItem('events') || '[]'); }catch(e){ return []; }
+}
+async function migrateLocalData(){
+  const evs = localLegacyEvents();
+  for(const ev of evs){
+    if(!state.events.find(x => x.id === ev.id)) state.events.push(ev);
+  }
+  await saveEvents();
+  if(syncStatus === 'err') return;
+  for(const ev of evs){
+    let parts = [];
+    try{ parts = JSON.parse(localStorage.getItem('participants:'+ev.id) || '[]'); }catch(e){}
+    if(!partsSnap.has(ev.id)) await fetchParticipants(ev.id);
+    await saveParticipantList(ev.id, parts);
+    if(syncStatus === 'err') return;
+  }
+  localStorage.setItem('migratedToCloud', '1');
+  showToast(`Nahraných ${evs.length} termínov – kolegovia ich už vidia`);
+  render();
+}
+
 function getSignature(){
   if(state.settings.meno) return state.settings.meno;
   if(state.settings.email) return state.settings.email.split('@')[0];
@@ -262,7 +410,7 @@ function exportParticipantsCSV(list, ev, filename, includeStatus){
 
 // ---------- Prenos termínu medzi zariadeniami (mobil <-> PC) ----------
 async function exportEventTransfer(ev){
-  const participants = await storeGet('participants:'+ev.id) || [];
+  const participants = await fetchParticipants(ev.id) || [];
   const data = {type:'prezencka-termin', version:1, event: ev, participants, settings: state.settings};
   const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
   const url = URL.createObjectURL(blob);
@@ -288,7 +436,8 @@ function importEventTransfer(file){
         state.events.push(data.event);
       }
       await saveEvents();
-      await storeSet('participants:'+data.event.id, data.participants || []);
+      if(!partsSnap.has(data.event.id)) await fetchParticipants(data.event.id);
+      await saveParticipantList(data.event.id, data.participants || []);
       if(data.settings && !state.settings.meno && !state.settings.email){
         state.settings = data.settings;
         await saveSettings();
@@ -299,13 +448,6 @@ function importEventTransfer(file){
     }catch(err){ showToast('Neplatný súbor na prenos'); }
   };
   reader.readAsText(file, 'UTF-8');
-}
-async function loadParticipants(eventId){
-  const p = await storeGet('participants:'+eventId);
-  state.currentParticipants = p || [];
-}
-async function saveParticipants(eventId){
-  await storeSet('participants:'+eventId, state.currentParticipants);
 }
 
 function fmtDate(d){
@@ -447,6 +589,8 @@ function render(){
   else if(state.screen==='settings') renderSettings();
   const s = el('#btnSettings');
   if(s) s.onclick = () => { state.settingsReturnScreen = state.screen; state.screen='settings'; render(); };
+  const lo = el('#btnLogout');
+  if(lo) lo.onclick = async () => { await sb.auth.signOut(); location.reload(); };
 }
 
 function renderHeader(){
@@ -456,7 +600,11 @@ function renderHeader(){
       <div class="mark">✓</div>
       <div><h1>Prezenčná listina</h1><p>Online zaškrtávanie účasti</p></div>
     </div>
-    <button class="btn-ghost btn-sm" id="btnSettings" title="Nastavenia podpisu">⚙ Podpis</button>
+    <div class="head-actions">
+      <span id="syncBadge" class="sync ${syncStatus==='ok'?'ok':syncStatus==='err'?'err':''}" title="${currentUserEmail}"><i class="dot"></i><span>${syncStatus==='ok'?'Uložené online':syncStatus==='err'?'Chyba spojenia':'Ukladám…'}</span></span>
+      <button class="btn-ghost btn-sm" id="btnSettings" title="Nastavenia podpisu">⚙ Podpis</button>
+      <button class="btn-ghost btn-sm" id="btnLogout" title="Odhlásiť ${currentUserEmail}">Odhlásiť</button>
+    </div>
   </header>`;
 }
 
@@ -465,12 +613,21 @@ function renderList(){
   app.innerHTML = `
     ${renderHeader()}
     <div style="display:flex; justify-content:flex-end; gap:8px; margin-bottom:14px; flex-wrap:wrap;">
-      <button class="btn-ghost btn-sm" id="btnImportTransfer">⇄ Načítať termín z iného zariadenia</button>
+      <button class="btn-ghost btn-sm" id="btnImportTransfer">⇄ Načítať termín zo súboru</button>
       <input type="file" id="importTransferFile" class="hidden-file-input" accept=".json">
       <button class="btn-primary" id="btnNew">+ Nový termín</button>
     </div>
+    ${localLegacyEvents().length ? `
+      <div class="card migrate">
+        <h2>V tomto prehliadači máš ${localLegacyEvents().length} termínov z predchádzajúcej verzie</h2>
+        <p class="hint">Zatiaľ ich vidíš iba ty. Nahraj ich do zdieľanej listiny, aby ich videli aj kolegovia.</p>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button class="btn-primary btn-sm" id="btnMigrate">Nahrať do zdieľanej listiny</button>
+          <button class="btn-ghost btn-sm" id="btnMigrateSkip">Nenahrávať</button>
+        </div>
+      </div>` : ''}
     ${items.length===0 ? `
-      <div class="empty"><div class="big">🗒️</div>Zatiaľ nemáš žiadny termín.<br>Založ si prvý cez tlačidlo hore.</div>
+      <div class="empty"><div class="big">🗒️</div>Zatiaľ tu nie je žiadny termín.<br>Založ prvý cez tlačidlo hore – kolegovia ho uvidia hneď.</div>
     ` : items.map(ev => `
       <div class="event-item" data-id="${ev.id}">
         <div style="flex:1; min-width:0;">
@@ -483,6 +640,11 @@ function renderList(){
     `).join('')}
   `;
   el('#btnNew').onclick = () => { state.screen='new'; render(); };
+  if(el('#btnMigrate')) el('#btnMigrate').onclick = migrateLocalData;
+  if(el('#btnMigrateSkip')) el('#btnMigrateSkip').onclick = () => {
+    if(!confirm('Staré termíny ostanú len v tomto prehliadači a táto ponuka sa už nezobrazí. Pokračovať?')) return;
+    localStorage.setItem('migratedToCloud','1'); render();
+  };
   el('#btnImportTransfer').onclick = () => el('#importTransferFile').click();
   el('#importTransferFile').onchange = (e) => {
     const file = e.target.files[0];
@@ -500,10 +662,9 @@ function renderList(){
     const delBtn = row.querySelector(`[data-del="${ev.id}"]`);
     delBtn.onclick = async (e) => {
       e.stopPropagation();
-      if(!confirm(`Naozaj vymazať termín "${ev.mesto}"${ev.nazov ? ' · '+ev.nazov : ''} (${fmtDate(ev.datum)}) aj s celou prezenčkou? Toto sa nedá vrátiť späť.`)) return;
+      if(!confirm(`Naozaj vymazať termín "${ev.mesto}"${ev.nazov ? ' · '+ev.nazov : ''} (${fmtDate(ev.datum)}) aj s celou prezenčkou? Zmizne všetkým kolegom a nedá sa vrátiť späť.`)) return;
       state.events = state.events.filter(x => x.id !== ev.id);
       await saveEvents();
-      await storeDelete('participants:'+ev.id);
       showToast('Termín vymazaný');
       render();
     };
@@ -582,6 +743,7 @@ function renderNewEvent(){
     await saveSettings();
     state.currentEventId = ev.id;
     state.currentParticipants = state.pendingKrosParticipants || [];
+    partsSnap.set(ev.id, new Map());
     await saveParticipants(ev.id);
     state.pendingKrosParticipants = null;
     state.screen='detail';
@@ -675,7 +837,6 @@ function renderDetail(){
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; gap:8px; flex-wrap:wrap;">
         <h2 style="margin:0;">Prezenčná listina</h2>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button class="btn-ghost btn-sm" id="btnTransferOut">⇄ Preniesť na iné zariadenie</button>
           <button class="btn-ghost btn-sm" id="btnDownloadList">⬇ Stiahnuť zoznam</button>
           <button class="btn-ghost btn-sm" id="btnOpenAddPerson">+ Pridať účastníka</button>
           <button class="btn-ghost btn-sm" id="btnAddMore">+ Doplniť zo súboru</button>
@@ -986,10 +1147,71 @@ function renderSettings(){
   };
 }
 
-(async function init(){
-  await loadEvents();
+function renderLogin(msg){
+  app.innerHTML = `
+    <div class="login">
+      <div class="brand" style="margin-bottom:18px;">
+        <div class="mark">✓</div>
+        <div><h1>Prezenčná listina</h1><p>Zdieľaná listina pre celý tím</p></div>
+      </div>
+      <div class="card">
+        <h2>Prihlásenie</h2>
+        <p class="hint">Zadaj svoj pracovný e-mail. Pošleme ti odkaz, cez ktorý sa prihlásiš – bez hesla. Na tomto zariadení ostaneš prihlásený.</p>
+        <div class="field"><label>E-mail</label><input type="email" id="loginEmail" placeholder="meno@firma.sk" autocomplete="email"></div>
+        <button class="btn-primary" id="btnLogin">Poslať prihlasovací odkaz</button>
+        ${msg ? `<p class="helptext" style="margin-top:12px;">${msg}</p>` : ''}
+      </div>
+    </div>`;
+  const send = async () => {
+    const email = el('#loginEmail').value.trim();
+    if(!email){ showToast('Zadaj e-mail'); return; }
+    el('#btnLogin').disabled = true;
+    const {error} = await sb.auth.signInWithOtp({email, options:{emailRedirectTo: location.origin + location.pathname}});
+    if(error){
+      el('#btnLogin').disabled = false;
+      showToast(/rate|limit/i.test(error.message) ? 'Príliš veľa e-mailov naraz – skús o chvíľu' : 'Odkaz sa nepodarilo poslať');
+      return;
+    }
+    renderLogin(`Odkaz sme poslali na <b>${email}</b>. Otvor ho v tomto istom prehliadači. Ak e-mail nevidíš, pozri priečinok so spamom.`);
+  };
+  el('#btnLogin').onclick = send;
+  el('#loginEmail').onkeydown = (e) => { if(e.key==='Enter') send(); };
+}
+
+function renderNoAccess(){
+  app.innerHTML = `
+    <div class="login"><div class="card">
+      <h2>Tento e-mail nemá prístup</h2>
+      <p class="hint">Si prihlásený ako <b>${currentUserEmail}</b>, ale tento e-mail nie je v zozname kolegov s prístupom. Požiadaj správcu listiny, aby ťa pridal, a potom stránku obnov.</p>
+      <button class="btn-ghost btn-sm" id="btnLogout2">Prihlásiť sa iným e-mailom</button>
+    </div></div>`;
+  el('#btnLogout2').onclick = async () => { await sb.auth.signOut(); location.reload(); };
+}
+
+let started = false;
+async function startApp(session){
+  if(started) return;
+  started = true;
+  currentUserEmail = session.user.email || '';
+  const {data:allowed, error} = await sb.rpc('is_allowed');
+  if(error){ app.innerHTML = '<div class="empty">Nepodarilo sa spojiť s databázou. Obnov stránku.</div>'; console.error(error); return; }
+  if(!allowed){ renderNoAccess(); return; }
   await loadSettings();
+  await loadEvents();
+  subscribeRealtime();
   render();
+}
+
+(async function init(){
+  if(SUPABASE_URL.includes('TVOJ-PROJEKT')){
+    app.innerHTML = '<div class="empty">Chýba nastavenie Supabase – doplň SUPABASE_URL a SUPABASE_ANON_KEY v index.html.</div>';
+    return;
+  }
+  sb.auth.onAuthStateChange((event, session) => {
+    if(session) startApp(session);
+  });
+  const {data:{session}} = await sb.auth.getSession();
+  if(session) startApp(session); else renderLogin();
 })();
 </script>
 </body>
