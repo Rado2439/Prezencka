@@ -203,7 +203,9 @@ const SUPABASE_URL = 'https://bgkyrxfsenxvodtoffei.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJna3lyeGZzZW54dm9kdG9mZmVpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA5MzkwMTcsImV4cCI6MjEwNjUxNTAxN30.0t5aTgQI0NOJCNaHTJQROo3dpvcHG8mCmlpjTerQDXU';
 // =========================================================
 
-const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth:{ persistSession:true, autoRefreshToken:true, detectSessionInUrl:true }
+});
 let currentUserEmail = '';
 let syncStatus = 'ok'; // ok | busy | err
 
@@ -1147,7 +1149,7 @@ function renderSettings(){
   };
 }
 
-function renderLogin(msg){
+function renderLogin(msg, sentTo){
   app.innerHTML = `
     <div class="login">
       <div class="brand" style="margin-bottom:18px;">
@@ -1156,26 +1158,54 @@ function renderLogin(msg){
       </div>
       <div class="card">
         <h2>Prihlásenie</h2>
-        <p class="hint">Zadaj svoj pracovný e-mail. Pošleme ti odkaz, cez ktorý sa prihlásiš – bez hesla. Na tomto zariadení ostaneš prihlásený.</p>
-        <div class="field"><label>E-mail</label><input type="email" id="loginEmail" placeholder="meno@firma.sk" autocomplete="email"></div>
-        <button class="btn-primary" id="btnLogin">Poslať prihlasovací odkaz</button>
+        ${!sentTo ? `
+          <p class="hint">Zadaj svoj pracovný e-mail. Pošleme ti kód na prihlásenie – bez hesla. Na tomto zariadení a v tomto prehliadači potom ostaneš prihlásený.</p>
+          <div class="field"><label>E-mail</label><input type="email" id="loginEmail" placeholder="meno@firma.sk" autocomplete="email"></div>
+          <button class="btn-primary" id="btnLogin">Poslať kód</button>
+        ` : `
+          <p class="hint">Na <b>${sentTo}</b> sme poslali e-mail s kódom. Opíš kód sem – takto sa prihlásiš priamo v tomto prehliadači.</p>
+          <div class="field"><label>Kód z e-mailu</label><input type="text" id="loginCode" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456"></div>
+          <button class="btn-primary" id="btnVerify">Prihlásiť sa</button>
+          <p style="margin-top:12px;"><button class="btn-ghost btn-sm" id="btnOtherEmail">Zadať iný e-mail</button></p>
+        `}
         ${msg ? `<p class="helptext" style="margin-top:12px;">${msg}</p>` : ''}
       </div>
     </div>`;
-  const send = async () => {
-    const email = el('#loginEmail').value.trim();
-    if(!email){ showToast('Zadaj e-mail'); return; }
-    el('#btnLogin').disabled = true;
-    const {error} = await sb.auth.signInWithOtp({email, options:{emailRedirectTo: location.origin + location.pathname}});
-    if(error){
-      el('#btnLogin').disabled = false;
-      showToast(/rate|limit/i.test(error.message) ? 'Príliš veľa e-mailov naraz – skús o chvíľu' : 'Odkaz sa nepodarilo poslať');
-      return;
-    }
-    renderLogin(`Odkaz sme poslali na <b>${email}</b>. Otvor ho v tomto istom prehliadači. Ak e-mail nevidíš, pozri priečinok so spamom.`);
-  };
-  el('#btnLogin').onclick = send;
-  el('#loginEmail').onkeydown = (e) => { if(e.key==='Enter') send(); };
+  if(!sentTo){
+    const send = async () => {
+      const email = el('#loginEmail').value.trim().toLowerCase();
+      if(!email){ showToast('Zadaj e-mail'); return; }
+      el('#btnLogin').disabled = true;
+      const {error} = await sb.auth.signInWithOtp({email, options:{emailRedirectTo: location.origin + location.pathname}});
+      if(error){
+        el('#btnLogin').disabled = false;
+        showToast(/rate|limit|seconds/i.test(error.message) ? 'Príliš veľa e-mailov naraz – skús o chvíľu' : 'Kód sa nepodarilo poslať');
+        return;
+      }
+      sessionStorage.setItem('loginEmail', email);
+      renderLogin('Ak e-mail nevidíš, pozri priečinok so spamom. Nový kód si nežiadaj skôr ako o minútu.', email);
+    };
+    el('#btnLogin').onclick = send;
+    el('#loginEmail').onkeydown = (e) => { if(e.key==='Enter') send(); };
+  } else {
+    const verify = async () => {
+      const token = el('#loginCode').value.replace(/\s/g,'');
+      if(!token){ showToast('Opíš kód z e-mailu'); return; }
+      el('#btnVerify').disabled = true;
+      const {data, error} = await sb.auth.verifyOtp({email:sentTo, token, type:'email'});
+      if(error || !data.session){
+        el('#btnVerify').disabled = false;
+        showToast('Kód nesedí alebo už vypršal – skús znova alebo si vypýtaj nový');
+        return;
+      }
+      sessionStorage.removeItem('loginEmail');
+      startApp(data.session);
+    };
+    el('#btnVerify').onclick = verify;
+    el('#loginCode').onkeydown = (e) => { if(e.key==='Enter') verify(); };
+    el('#loginCode').focus();
+    el('#btnOtherEmail').onclick = () => { sessionStorage.removeItem('loginEmail'); renderLogin(); };
+  }
 }
 
 function renderNoAccess(){
@@ -1211,7 +1241,7 @@ async function startApp(session){
     if(session) startApp(session);
   });
   const {data:{session}} = await sb.auth.getSession();
-  if(session) startApp(session); else renderLogin();
+  if(session) startApp(session); else { const pe = sessionStorage.getItem('loginEmail'); pe ? renderLogin('', pe) : renderLogin(); }
 })();
 </script>
 </body>
