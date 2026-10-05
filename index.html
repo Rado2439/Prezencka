@@ -604,7 +604,7 @@ function renderHeader(){
     </div>
     <div class="head-actions">
       <span id="syncBadge" class="sync ${syncStatus==='ok'?'ok':syncStatus==='err'?'err':''}" title="${currentUserEmail}"><i class="dot"></i><span>${syncStatus==='ok'?'Uložené online':syncStatus==='err'?'Chyba spojenia':'Ukladám…'}</span></span>
-      <button class="btn-ghost btn-sm" id="btnSettings" title="Nastavenia podpisu">⚙ Podpis</button>
+      <button class="btn-ghost btn-sm" id="btnSettings" title="Podpis a zmena hesla">⚙ Nastavenia</button>
       <button class="btn-ghost btn-sm" id="btnLogout" title="Odhlásiť ${currentUserEmail}">Odhlásiť</button>
     </div>
   </header>`;
@@ -1137,7 +1137,25 @@ function renderSettings(){
       <div class="field"><label>Tvoj e-mail (použije sa, ak meno nevyplníš – podpíše sa časťou pred @)</label><input type="email" id="setEmail" placeholder="jan.kralik@kros.sk" value="${state.settings.email||''}"></div>
       <button class="btn-primary" id="btnSaveSettings">Uložiť</button>
     </div>
+    <div class="card">
+      <h2>Zmena hesla</h2>
+      <p class="hint">Prihlásený ako <b>${currentUserEmail}</b>. Heslo od správcu si tu môžeš zmeniť na vlastné.</p>
+      <div class="field"><label>Nové heslo (aspoň 8 znakov)</label><input type="password" id="newPass1" autocomplete="new-password"></div>
+      <div class="field"><label>Nové heslo ešte raz</label><input type="password" id="newPass2" autocomplete="new-password"></div>
+      <button class="btn-ghost" id="btnChangePass">Zmeniť heslo</button>
+    </div>
   `;
+  el('#btnChangePass').onclick = async () => {
+    const p1 = el('#newPass1').value, p2 = el('#newPass2').value;
+    if(p1.length < 8){ showToast('Heslo musí mať aspoň 8 znakov'); return; }
+    if(p1 !== p2){ showToast('Heslá sa nezhodujú'); return; }
+    el('#btnChangePass').disabled = true;
+    const {error} = await sb.auth.updateUser({password:p1});
+    el('#btnChangePass').disabled = false;
+    if(error){ showToast('Heslo sa nepodarilo zmeniť'); console.error(error); return; }
+    el('#newPass1').value = ''; el('#newPass2').value = '';
+    showToast('Heslo zmenené');
+  };
   el('#back').onclick = () => { state.screen = state.settingsReturnScreen || 'list'; render(); };
   el('#btnSaveSettings').onclick = async () => {
     state.settings.meno = el('#setMeno').value.trim();
@@ -1149,7 +1167,7 @@ function renderSettings(){
   };
 }
 
-function renderLogin(msg, sentTo){
+function renderLogin(msg){
   app.innerHTML = `
     <div class="login">
       <div class="brand" style="margin-bottom:18px;">
@@ -1158,54 +1176,29 @@ function renderLogin(msg, sentTo){
       </div>
       <div class="card">
         <h2>Prihlásenie</h2>
-        ${!sentTo ? `
-          <p class="hint">Zadaj svoj pracovný e-mail. Pošleme ti kód na prihlásenie – bez hesla. Na tomto zariadení a v tomto prehliadači potom ostaneš prihlásený.</p>
-          <div class="field"><label>E-mail</label><input type="email" id="loginEmail" placeholder="meno@firma.sk" autocomplete="email"></div>
-          <button class="btn-primary" id="btnLogin">Poslať kód</button>
-        ` : `
-          <p class="hint">Na <b>${sentTo}</b> sme poslali e-mail s kódom. Opíš kód sem – takto sa prihlásiš priamo v tomto prehliadači.</p>
-          <div class="field"><label>Kód z e-mailu</label><input type="text" id="loginCode" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456"></div>
-          <button class="btn-primary" id="btnVerify">Prihlásiť sa</button>
-          <p style="margin-top:12px;"><button class="btn-ghost btn-sm" id="btnOtherEmail">Zadať iný e-mail</button></p>
-        `}
-        ${msg ? `<p class="helptext" style="margin-top:12px;">${msg}</p>` : ''}
+        <p class="hint">Prihlás sa e-mailom a heslom, ktoré ti dal správca listiny. Na tomto zariadení a v tomto prehliadači potom ostaneš prihlásený.</p>
+        <div class="field"><label>E-mail</label><input type="email" id="loginEmail" placeholder="meno@firma.sk" autocomplete="username"></div>
+        <div class="field"><label>Heslo</label><input type="password" id="loginPass" autocomplete="current-password"></div>
+        <button class="btn-primary" id="btnLogin">Prihlásiť sa</button>
+        <p class="helptext" style="margin-top:12px;">${msg || 'Zabudnuté heslo? Napíš správcovi listiny, nastaví ti nové.'}</p>
       </div>
     </div>`;
-  if(!sentTo){
-    const send = async () => {
-      const email = el('#loginEmail').value.trim().toLowerCase();
-      if(!email){ showToast('Zadaj e-mail'); return; }
-      el('#btnLogin').disabled = true;
-      const {error} = await sb.auth.signInWithOtp({email, options:{emailRedirectTo: location.origin + location.pathname}});
-      if(error){
-        el('#btnLogin').disabled = false;
-        showToast(/rate|limit|seconds/i.test(error.message) ? 'Príliš veľa e-mailov naraz – skús o chvíľu' : 'Kód sa nepodarilo poslať');
-        return;
-      }
-      sessionStorage.setItem('loginEmail', email);
-      renderLogin('Ak e-mail nevidíš, pozri priečinok so spamom. Nový kód si nežiadaj skôr ako o minútu.', email);
-    };
-    el('#btnLogin').onclick = send;
-    el('#loginEmail').onkeydown = (e) => { if(e.key==='Enter') send(); };
-  } else {
-    const verify = async () => {
-      const token = el('#loginCode').value.replace(/\s/g,'');
-      if(!token){ showToast('Opíš kód z e-mailu'); return; }
-      el('#btnVerify').disabled = true;
-      const {data, error} = await sb.auth.verifyOtp({email:sentTo, token, type:'email'});
-      if(error || !data.session){
-        el('#btnVerify').disabled = false;
-        showToast('Kód nesedí alebo už vypršal – skús znova alebo si vypýtaj nový');
-        return;
-      }
-      sessionStorage.removeItem('loginEmail');
-      startApp(data.session);
-    };
-    el('#btnVerify').onclick = verify;
-    el('#loginCode').onkeydown = (e) => { if(e.key==='Enter') verify(); };
-    el('#loginCode').focus();
-    el('#btnOtherEmail').onclick = () => { sessionStorage.removeItem('loginEmail'); renderLogin(); };
-  }
+  const login = async () => {
+    const email = el('#loginEmail').value.trim().toLowerCase();
+    const password = el('#loginPass').value;
+    if(!email || !password){ showToast('Zadaj e-mail aj heslo'); return; }
+    el('#btnLogin').disabled = true;
+    const {data, error} = await sb.auth.signInWithPassword({email, password});
+    if(error || !data.session){
+      el('#btnLogin').disabled = false;
+      showToast(/rate|limit|many/i.test(error && error.message || '') ? 'Príliš veľa pokusov – skús o chvíľu' : 'Nesprávny e-mail alebo heslo');
+      return;
+    }
+    startApp(data.session);
+  };
+  el('#btnLogin').onclick = login;
+  el('#loginEmail').onkeydown = (e) => { if(e.key==='Enter') el('#loginPass').focus(); };
+  el('#loginPass').onkeydown = (e) => { if(e.key==='Enter') login(); };
 }
 
 function renderNoAccess(){
@@ -1241,7 +1234,7 @@ async function startApp(session){
     if(session) startApp(session);
   });
   const {data:{session}} = await sb.auth.getSession();
-  if(session) startApp(session); else { const pe = sessionStorage.getItem('loginEmail'); pe ? renderLogin('', pe) : renderLogin(); }
+  if(session) startApp(session); else renderLogin();
 })();
 </script>
 </body>
